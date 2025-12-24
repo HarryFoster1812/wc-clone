@@ -1,11 +1,12 @@
 #include <bits/types/mbstate_t.h>
-#include <ctype.h>
 #include <limits.h>
+#include <locale.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <uchar.h>
 #include <wchar.h>
 #include <wctype.h>
 
@@ -15,7 +16,7 @@ bool defaultFlags[] = {true, true, false, true, false};
 
 int *processFile(FILE *f) {
 
-  bool lastAlphanumeric = false;
+  bool inWord = false;
 
   int rawc;
   int lineCount = 0;
@@ -29,7 +30,7 @@ int *processFile(FILE *f) {
   int longestLine = 0;
   int currentLine = 0;
 
-  char buffer[MB_LEN_MAX];
+  unsigned char buffer[MB_LEN_MAX];
   size_t bytes_in_buffer = 0;
   wchar_t current_char;
 
@@ -39,21 +40,16 @@ int *processFile(FILE *f) {
     byteCount++;
     currentLine++;
 
-    buffer[bytes_in_buffer++] = (char)rawc;
+    buffer[bytes_in_buffer++] = (unsigned char)rawc;
 
-    int status = mbrtowc(&current_char, buffer, bytes_in_buffer, &state);
+    size_t status = mbrtowc(&current_char, buffer, bytes_in_buffer, &state);
 
     if (status == (size_t)-2) {
-      // Incomplete sequence, check for overflow
-      if (bytes_in_buffer >= MB_LEN_MAX) {
-        // Handle error: invalid sequence
-        bytes_in_buffer = 0;
-        memset(&state, 0, sizeof(state));
-      }
+      // incomplete, read more bytes
       continue;
     } else if (status == (size_t)-1) {
-      // Encoding error: reset and skip this byte
-      bytes_in_buffer = 0;
+      // invalid: skip first byte, reset state
+      memmove(buffer, buffer + 1, --bytes_in_buffer); // shift remaining bytes
       memset(&state, 0, sizeof(state));
       continue;
     }
@@ -62,17 +58,21 @@ int *processFile(FILE *f) {
     bytes_in_buffer = 0;
     characterCount++;
 
-    bool isAlphanum = !isspace(current_char);
-    if (isAlphanum && !lastAlphanumeric) {
+    bool isSpace = iswspace(current_char);
+
+    if (!isSpace && !inWord) {
+      inWord = true;
       wordCount++;
-    } else if (current_char == '\n') {
+    } else if (isSpace) {
+      inWord = false;
+    }
+    if (current_char == '\n') {
       if (currentLine > longestLine)
         longestLine = currentLine;
       currentLine = 0;
+      inWord = false;
       lineCount++;
     }
-
-    lastAlphanumeric = isAlphanum;
   }
 
   if (currentLine > longestLine)
@@ -99,31 +99,32 @@ void printStats(int *stats, bool *printBool) {
 }
 
 void parseSingleFlag(char *flag, bool *inputFlags) {
-  if (strcmp(flag, "--bytes")) {
+  if (strcmp(flag, "--bytes") == 0) {
     inputFlags[3] = true;
     return;
-  } else if (strcmp(flag, "--chars")) {
+  } else if (strcmp(flag, "--chars") == 0) {
     inputFlags[2] = true;
     return;
-  } else if (strcmp(flag, "--words")) {
+  } else if (strcmp(flag, "--words") == 0) {
     inputFlags[1] = true;
     return;
-  } else if (strcmp(flag, "--lines")) {
+  } else if (strcmp(flag, "--lines") == 0) {
     inputFlags[0] = true;
     return;
-  } else if (strcmp(flag, "--max-line-length")) {
+  } else if (strcmp(flag, "--max-line-length") == 0) {
     inputFlags[4] = true;
     return;
-  } else if (strcmp(flag, "--help")) {
+  } else if (strcmp(flag, "--help") == 0) {
     // write help info
     exit(EXIT_SUCCESS);
-  } else if (strcmp(flag, "--version")) {
+  } else if (strcmp(flag, "--version") == 0) {
     // write version info
     exit(EXIT_SUCCESS);
   }
 }
 
 int main(int argc, char *argv[]) {
+  setlocale(LC_ALL, "");
   bool *printFlags = (bool *)&defaultFlags;
   bool flagSet = false;
   bool *inputFlags = calloc(RETURNARG_LEN, sizeof(bool));
@@ -177,7 +178,7 @@ int main(int argc, char *argv[]) {
 
     // take file from stdin
     int *statistics = processFile(stdin);
-    printStats(statistics, (bool *)&printFlags);
+    printStats(statistics, (bool *)printFlags);
     printf("\n");
     return EXIT_SUCCESS;
   }
@@ -192,6 +193,11 @@ int main(int argc, char *argv[]) {
     } else {
       int *statistics = processFile(f);
       fclose(f);
+      if (!statistics) {
+        // something bad happened in processFile
+        printf("Process file failed to malloc return struct\n");
+        exit(EXIT_FAILURE);
+      }
       printStats(statistics, printFlags);
       printf(" %s\n", argv[fileIndex]);
 
@@ -204,6 +210,7 @@ int main(int argc, char *argv[]) {
       if (statistics[4] > outputTotals[4]) {
         outputTotals[4] = statistics[4];
       }
+      free(statistics);
     }
   }
   if (inputFileCount > 1) {
