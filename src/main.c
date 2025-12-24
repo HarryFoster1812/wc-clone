@@ -129,7 +129,7 @@ int main(int argc, char *argv[]) {
   bool *inputFlags = calloc(RETURNARG_LEN, sizeof(bool));
 
   int inputFileCount = 0;
-  bool *inputFiles = malloc(sizeof(int) * argc);
+  int *inputFiles = malloc(sizeof(int) * argc);
   int *outputTotals = calloc(RETURNARG_LEN, sizeof(int));
 
   for (int i = 1; i < argc; ++i) {
