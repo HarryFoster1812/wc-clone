@@ -1,0 +1,8 @@
+/home/harryfoster/git/wc-clone/tests/test01.txt
+/home/harryfoster/git/wc-clone/tests/test02.txt
+/home/harryfoster/git/wc-clone/tests/test03.txt
+/home/harryfoster/git/wc-clone/tests/test04.txt
+/home/harryfoster/git/wc-clone/tests/test05.txt
+/home/harryfoster/git/wc-clone/tests/test06.txt
+/home/harryfoster/git/wc-clone/tests/test07.txt
+/home/harryfoster/git/wc-clone/tests/test08.txt

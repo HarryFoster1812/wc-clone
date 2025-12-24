@@ -11,11 +11,13 @@
 
 #define RETURNARG_LEN 5
 
+bool defaultFlags[] = {true, true, false, true, false};
+
 int *processFile(FILE *f) {
 
   bool lastAlphanumeric = false;
 
-  char rawc;
+  int rawc;
   int lineCount = 0;
   int wordCount = 0;
   int characterCount = 0;
@@ -31,39 +33,51 @@ int *processFile(FILE *f) {
   size_t bytes_in_buffer = 0;
   wchar_t current_char;
 
-  rawc = fgetc(f);
-  while (rawc != EOF) {
+  while ((rawc = fgetc(f)) != EOF) {
     // process character
 
     byteCount++;
+    currentLine++;
 
-    buffer[bytes_in_buffer++] = rawc;
+    buffer[bytes_in_buffer++] = (char)rawc;
 
-    int status =
-        mbrtowc(&current_char, (char *)&buffer, bytes_in_buffer, &state);
-    if (status < 0) {
-      rawc = fgetc(f);
+    int status = mbrtowc(&current_char, buffer, bytes_in_buffer, &state);
+
+    if (status == (size_t)-2) {
+      // Incomplete sequence, check for overflow
+      if (bytes_in_buffer >= MB_LEN_MAX) {
+        // Handle error: invalid sequence
+        bytes_in_buffer = 0;
+        memset(&state, 0, sizeof(state));
+      }
+      continue;
+    } else if (status == (size_t)-1) {
+      // Encoding error: reset and skip this byte
+      bytes_in_buffer = 0;
+      memset(&state, 0, sizeof(state));
       continue;
     }
 
-    // character decoding complete
-    memset(&state, 0, sizeof(state));
+    // Success (status >= 0)
     bytes_in_buffer = 0;
     characterCount++;
 
-    // reset state and buffer
-
-    bool isAlphanum = iswalnum(current_char);
+    bool isAlphanum = !isspace(current_char);
     if (isAlphanum && !lastAlphanumeric) {
       wordCount++;
     } else if (current_char == '\n') {
+      if (currentLine > longestLine)
+        longestLine = currentLine;
+      currentLine = 0;
       lineCount++;
     }
 
     lastAlphanumeric = isAlphanum;
-
-    rawc = fgetc(f);
   }
+
+  if (currentLine > longestLine)
+    longestLine = currentLine;
+
   int *return_vals = malloc(sizeof(int) * RETURNARG_LEN);
   if (!return_vals) {
     return NULL;
@@ -82,18 +96,121 @@ void printStats(int *stats, bool *printBool) {
       printf("%7d", stats[i]);
     }
   }
-  printf("\n");
+}
+
+void parseSingleFlag(char *flag, bool *inputFlags) {
+  if (strcmp(flag, "--bytes")) {
+    inputFlags[3] = true;
+    return;
+  } else if (strcmp(flag, "--chars")) {
+    inputFlags[2] = true;
+    return;
+  } else if (strcmp(flag, "--words")) {
+    inputFlags[1] = true;
+    return;
+  } else if (strcmp(flag, "--lines")) {
+    inputFlags[0] = true;
+    return;
+  } else if (strcmp(flag, "--max-line-length")) {
+    inputFlags[4] = true;
+    return;
+  } else if (strcmp(flag, "--help")) {
+    // write help info
+    exit(EXIT_SUCCESS);
+  } else if (strcmp(flag, "--version")) {
+    // write version info
+    exit(EXIT_SUCCESS);
+  }
 }
 
 int main(int argc, char *argv[]) {
-  bool printFlags[] = {true, true, false, true, false};
+  bool *printFlags = (bool *)&defaultFlags;
+  bool flagSet = false;
+  bool *inputFlags = calloc(RETURNARG_LEN, sizeof(bool));
 
-  if (argc == 1) {
-    // need to allow std input
+  int inputFileCount = 0;
+  bool *inputFiles = malloc(sizeof(int) * argc);
+  int *outputTotals = calloc(RETURNARG_LEN, sizeof(int));
+
+  for (int i = 1; i < argc; ++i) {
+    if (strncmp(argv[i], "--", 2) == 0) {
+      flagSet = true;
+      printFlags = inputFlags;
+      parseSingleFlag(argv[i], inputFlags);
+    } else if (argv[i][0] == '-') {
+      // it is a char flag
+      flagSet = true;
+      printFlags = inputFlags;
+      for (int j = 1; j < strlen(argv[i]); ++j) {
+        switch (argv[i][j]) {
+        case 'l':
+          inputFlags[0] = true;
+          break;
+        case 'w':
+          inputFlags[1] = true;
+          break;
+        case 'm':
+          inputFlags[2] = true;
+          break;
+        case 'c':
+          inputFlags[3] = true;
+          break;
+        case 'L':
+          inputFlags[4] = true;
+          break;
+        default:
+          printf("INVALID FLAG %c please check --help for more information",
+                 argv[i][j]);
+        }
+      }
+    } else {
+      // we can interpret it as an input file
+      inputFiles[inputFileCount++] = i;
+    }
+  }
+
+  if (!flagSet) {
+    free(inputFlags);
+  }
+  if (!inputFileCount) {
+    free(inputFiles);
+
+    // take file from stdin
     int *statistics = processFile(stdin);
     printStats(statistics, (bool *)&printFlags);
-  } else {
-    // parse input flags
+    printf("\n");
+    return EXIT_SUCCESS;
   }
+
+  // else we take the file list
+
+  for (int i = 0; i < inputFileCount; ++i) {
+    int fileIndex = inputFiles[i];
+    FILE *f = fopen(argv[fileIndex], "r");
+    if (!f) {
+      printf("Failed to find file %s\n", argv[fileIndex]);
+    } else {
+      int *statistics = processFile(f);
+      fclose(f);
+      printStats(statistics, printFlags);
+      printf(" %s\n", argv[fileIndex]);
+
+      // aggregate total
+      outputTotals[0] += statistics[0];
+      outputTotals[1] += statistics[1];
+      outputTotals[2] += statistics[2];
+      outputTotals[3] += statistics[3];
+      // set max line length
+      if (statistics[4] > outputTotals[4]) {
+        outputTotals[4] = statistics[4];
+      }
+    }
+  }
+  if (inputFileCount > 1) {
+    // print total
+    printStats(outputTotals, printFlags);
+    printf(" total\n");
+  }
+
   return EXIT_SUCCESS;
 }

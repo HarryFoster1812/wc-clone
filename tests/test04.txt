@@ -1,0 +1,4 @@
+ASCII line
+Emoji line 😀😃😄
+Mixed line: café, 中文, 😀
+End of file.

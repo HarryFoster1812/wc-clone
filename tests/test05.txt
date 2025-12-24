@@ -1,0 +1,6 @@
+SingleByte
+€€€€€
+𐍈𐍈𐍈
+Newlines follow:
+
+Line after blank
