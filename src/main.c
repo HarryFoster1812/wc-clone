@@ -1,7 +1,13 @@
+#include <bits/types/mbstate_t.h>
 #include <ctype.h>
+#include <limits.h>
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
+#include <wctype.h>
 
 #define RETURNARG_LEN 5
 
@@ -9,27 +15,54 @@ int *processFile(FILE *f) {
 
   bool lastAlphanumeric = false;
 
-  char c;
+  char rawc;
   int lineCount = 0;
   int wordCount = 0;
   int characterCount = 0;
   int byteCount = 0;
 
+  mbstate_t state;
+  memset(&state, 0, sizeof(state));
+
   int longestLine = 0;
   int currentLine = 0;
 
-  c = fgetc(f);
-  while (c != EOF) {
+  char buffer[MB_LEN_MAX];
+  size_t bytes_in_buffer = 0;
+  wchar_t current_char;
+
+  rawc = fgetc(f);
+  while (rawc != EOF) {
     // process character
+
     byteCount++;
-    bool isAlphanum = isalnum(c);
+
+    buffer[bytes_in_buffer++] = rawc;
+
+    int status =
+        mbrtowc(&current_char, (char *)&buffer, bytes_in_buffer, &state);
+    if (status < 0) {
+      rawc = fgetc(f);
+      continue;
+    }
+
+    // character decoding complete
+    memset(&state, 0, sizeof(state));
+    bytes_in_buffer = 0;
+    characterCount++;
+
+    // reset state and buffer
+
+    bool isAlphanum = iswalnum(current_char);
     if (isAlphanum && !lastAlphanumeric) {
       wordCount++;
-    } else if (c == '\n') {
+    } else if (current_char == '\n') {
       lineCount++;
     }
+
     lastAlphanumeric = isAlphanum;
-    c = fgetc(f);
+
+    rawc = fgetc(f);
   }
   int *return_vals = malloc(sizeof(int) * RETURNARG_LEN);
   if (!return_vals) {
