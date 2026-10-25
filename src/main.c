@@ -15,7 +15,6 @@
 bool defaultFlags[] = {true, true, false, true, false};
 
 int *processFile(FILE *f) {
-
   bool inWord = false;
 
   int rawc;
@@ -35,28 +34,32 @@ int *processFile(FILE *f) {
   wchar_t current_char;
 
   while ((rawc = fgetc(f)) != EOF) {
-    // process character
-
     byteCount++;
-    currentLine++;
-
     buffer[bytes_in_buffer++] = (unsigned char)rawc;
 
     size_t status = mbrtowc(&current_char, buffer, bytes_in_buffer, &state);
 
     if (status == (size_t)-2) {
-      // incomplete, read more bytes
+      // Incomplete multibyte sequence: read more bytes
       continue;
     } else if (status == (size_t)-1) {
-      // invalid: skip first byte, reset state
-      memmove(buffer, buffer + 1, --bytes_in_buffer); // shift remaining bytes
+      // Invalid multibyte sequence or C locale: fallback to treating first byte as a character
+      current_char = (wchar_t)buffer[0];
+      bytes_in_buffer = 0;
       memset(&state, 0, sizeof(state));
-      continue;
+    } else if (status == 0) {
+      // Null wide character
+      current_char = L'\0';
+      bytes_in_buffer = 0;
+      memset(&state, 0, sizeof(state));
+    } else {
+      // Success (status > 0)
+      bytes_in_buffer = 0;
     }
 
-    // Success (status >= 0)
-    bytes_in_buffer = 0;
+    // Process the successfully decoded (or fallback) character
     characterCount++;
+    currentLine++;
 
     bool isSpace = iswspace(current_char);
 
@@ -66,6 +69,7 @@ int *processFile(FILE *f) {
     } else if (isSpace) {
       inWord = false;
     }
+
     if (current_char == '\n') {
       if (currentLine > longestLine)
         longestLine = currentLine;
